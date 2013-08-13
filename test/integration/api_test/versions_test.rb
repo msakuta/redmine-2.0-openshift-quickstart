@@ -1,5 +1,5 @@
 # Redmine - project management software
-# Copyright (C) 2006-2012  Jean-Philippe Lang
+# Copyright (C) 2006-2013  Jean-Philippe Lang
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -17,7 +17,7 @@
 
 require File.expand_path('../../../test_helper', __FILE__)
 
-class ApiTest::VersionsTest < ActionController::IntegrationTest
+class Redmine::ApiTest::VersionsTest < Redmine::ApiTest::Base
   fixtures :projects, :trackers, :issue_statuses, :issues,
            :enumerations, :users, :issue_categories,
            :projects_trackers,
@@ -25,7 +25,6 @@ class ApiTest::VersionsTest < ActionController::IntegrationTest
            :member_roles,
            :members,
            :enabled_modules,
-           :workflows,
            :versions
 
   def setup
@@ -83,6 +82,29 @@ class ApiTest::VersionsTest < ActionController::IntegrationTest
         assert_tag 'version', :child => {:tag => 'id', :content => version.id.to_s}
       end
 
+      should "create the version with custom fields" do
+        field = VersionCustomField.generate!
+
+        assert_difference 'Version.count' do
+          post '/projects/1/versions.xml', {
+              :version => {
+                :name => 'API test',
+                :custom_fields => [
+                  {'id' => field.id.to_s, 'value' => 'Some value'}
+                ]
+              }
+            }, credentials('jsmith')
+        end
+
+        version = Version.first(:order => 'id DESC')
+        assert_equal 'API test', version.name
+        assert_equal 'Some value', version.custom_field_value(field)
+
+        assert_response :created
+        assert_equal 'application/xml', @response.content_type
+        assert_select 'version>custom_fields>custom_field[id=?]>value', field.id.to_s, 'Some value'
+      end
+
       context "with failure" do
         should "return the errors" do
           assert_no_difference('Version.count') do
@@ -103,15 +125,11 @@ class ApiTest::VersionsTest < ActionController::IntegrationTest
 
         assert_response :success
         assert_equal 'application/xml', @response.content_type
-        assert_tag 'version',
-          :child => {
-            :tag => 'id',
-            :content => '2',
-            :sibling => {
-              :tag => 'name',
-              :content => '1.0'
-            }
-          }
+        assert_select 'version' do
+          assert_select 'id', :text => '2'
+          assert_select 'name', :text => '1.0'
+          assert_select 'sharing', :text => 'none'
+        end
       end
     end
 
@@ -120,6 +138,7 @@ class ApiTest::VersionsTest < ActionController::IntegrationTest
         put '/versions/2.xml', {:version => {:name => 'API update'}}, credentials('jsmith')
 
         assert_response :ok
+        assert_equal '', @response.body
         assert_equal 'API update', Version.find(2).name
       end
     end
@@ -131,6 +150,7 @@ class ApiTest::VersionsTest < ActionController::IntegrationTest
         end
 
         assert_response :ok
+        assert_equal '', @response.body
         assert_nil Version.find_by_id(3)
       end
     end
